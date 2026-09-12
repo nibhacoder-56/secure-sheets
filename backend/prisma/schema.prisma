@@ -1,0 +1,301 @@
+// Secure Sheets - Multi-tenant Collaborative Spreadsheet
+// Prisma Schema with strong multi-tenancy support
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum GlobalRole {
+  PLATFORM_SUPER_ADMIN
+  USER
+}
+
+enum OrgRole {
+  ORG_ADMIN
+  MEMBER
+}
+
+enum ResourcePermission {
+  VIEWER      // can only view
+  COMMENTER   // can view + comment
+  EDITOR      // can edit content
+  FULL_ACCESS // can edit + manage permissions on that resource
+}
+
+enum AuditAction {
+  // Auth
+  USER_LOGIN
+  USER_LOGOUT
+  USER_REGISTER
+  PASSWORD_CHANGE
+  SESSION_REVOKE
+  // Organization
+  ORG_CREATED
+  ORG_UPDATED
+  MEMBER_ADDED
+  MEMBER_REMOVED
+  MEMBER_ROLE_CHANGED
+  // Workbook / Sheet
+  WORKBOOK_CREATED
+  WORKBOOK_UPDATED
+  WORKBOOK_DELETED
+  SHEET_CREATED
+  SHEET_UPDATED
+  SHEET_DELETED
+  // Content
+  CELL_UPDATED
+  RANGE_UPDATED
+  FORMATTING_CHANGED
+  // Permissions
+  PERMISSION_GRANTED
+  PERMISSION_REVOKED
+  PERMISSION_UPDATED
+  // Other
+  FILE_IMPORTED
+  FILE_EXPORTED
+}
+
+// ============================================================
+// CORE IDENTITY
+// ============================================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String?   @unique
+  phone         String?   @unique
+  passwordHash  String?
+  name          String?
+  avatarUrl     String?
+  globalRole    GlobalRole @default(USER)
+  isActive      Boolean   @default(true)
+  emailVerified Boolean   @default(false)
+  phoneVerified Boolean   @default(false)
+  twoFactorEnabled Boolean @default(false)
+  twoFactorSecret  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLoginAt   DateTime?
+
+  // Relations
+  memberships       OrganizationMember[]
+  sessions          Session[]
+  workbookPermissions WorkbookPermission[]
+  sheetPermissions  SheetPermission[]
+  auditLogs         AuditLog[]  @relation("ActorLogs")
+  createdWorkbooks  Workbook[]  @relation("WorkbookCreator")
+  createdSheets     Sheet[]     @relation("SheetCreator")
+
+  @@index([email])
+  @@index([phone])
+  @@map("users")
+}
+
+model Session {
+  id               String   @id @default(cuid())
+  userId           String
+  refreshTokenHash String
+  userAgent        String?
+  ipAddress        String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([refreshTokenHash])
+  @@map("sessions")
+}
+
+// ============================================================
+// MULTI-TENANCY: ORGANIZATIONS
+// ============================================================
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  logoUrl     String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  members             OrganizationMember[]
+  workbooks           Workbook[]
+  auditLogs           AuditLog[]
+  workbookPermissions WorkbookPermission[]
+  sheetPermissions    SheetPermission[]
+
+  @@index([slug])
+  @@map("organizations")
+}
+
+model OrganizationMember {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  role           OrgRole  @default(MEMBER)
+  joinedAt       DateTime @default(now())
+  invitedById    String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@index([organizationId])
+  @@map("organization_members")
+}
+
+// ============================================================
+// WORKBOOKS & SHEETS
+// ============================================================
+
+model Workbook {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  createdById    String
+  isArchived     Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User         @relation("WorkbookCreator", fields: [createdById], references: [id])
+  sheets       Sheet[]
+  permissions  WorkbookPermission[]
+
+  @@index([organizationId])
+  @@index([createdById])
+  @@map("workbooks")
+}
+
+model Sheet {
+  id             String   @id @default(cuid())
+  workbookId     String
+  organizationId String   // denormalized for faster RLS
+  name           String
+  orderIndex     Int      @default(0)
+  // Yjs document state can be stored here or in a separate blob store
+  yjsState       Bytes?   // optional snapshot
+  createdById    String
+  isArchived     Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  workbook     Workbook @relation(fields: [workbookId], references: [id], onDelete: Cascade)
+  createdBy    User     @relation("SheetCreator", fields: [createdById], references: [id])
+  permissions  SheetPermission[]
+  cellHistory  CellHistory[]
+
+  @@index([workbookId])
+  @@index([organizationId])
+  @@map("sheets")
+}
+
+// ============================================================
+// PERMISSIONS (Workbook + Sheet level)
+// ============================================================
+
+model WorkbookPermission {
+  id             String             @id @default(cuid())
+  organizationId String
+  workbookId     String
+  userId         String
+  permission     ResourcePermission @default(VIEWER)
+  grantedById    String?
+  expiresAt      DateTime?          // null = permanent
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workbook     Workbook     @relation(fields: [workbookId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workbookId, userId])
+  @@index([userId])
+  @@index([organizationId])
+  @@index([expiresAt])
+  @@map("workbook_permissions")
+}
+
+model SheetPermission {
+  id             String             @id @default(cuid())
+  organizationId String
+  sheetId        String
+  userId         String
+  permission     ResourcePermission @default(VIEWER)
+  grantedById    String?
+  expiresAt      DateTime?          // null = permanent
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sheet        Sheet        @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([sheetId, userId])
+  @@index([userId])
+  @@index([organizationId])
+  @@index([expiresAt])
+  @@map("sheet_permissions")
+}
+
+// ============================================================
+// AUDIT & HISTORY (Immutable)
+// ============================================================
+
+model AuditLog {
+  id             String      @id @default(cuid())
+  organizationId String?
+  actorId        String?     // null for system events
+  action         AuditAction
+  resourceType   String      // "workbook", "sheet", "cell", "permission", "user", etc.
+  resourceId     String?
+  before         Json?
+  after          Json?
+  metadata       Json?       // extra context
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime    @default(now())
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  actor        User?         @relation("ActorLogs", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([resourceType, resourceId])
+  @@index([action])
+  @@map("audit_logs")
+}
+
+// Detailed cell-level history (for "show history of this cell")
+model CellHistory {
+  id             String   @id @default(cuid())
+  organizationId String
+  sheetId        String
+  cellRef        String   // e.g. "A1", "B12"
+  oldValue       Json?
+  newValue       Json?
+  oldFormat      Json?
+  newFormat      Json?
+  changedById    String
+  createdAt      DateTime @default(now())
+
+  sheet Sheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+
+  @@index([sheetId, cellRef, createdAt])
+  @@index([organizationId])
+  @@map("cell_history")
+}
