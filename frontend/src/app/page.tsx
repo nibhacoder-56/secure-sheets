@@ -134,7 +134,7 @@ export default function HomePage() {
         </form>
 
         <p className="text-center text-xs text-slate-400 mt-6">
-          Backend must be running on http://localhost:4000
+          Secure Sheets
         </p>
       </div>
     </div>

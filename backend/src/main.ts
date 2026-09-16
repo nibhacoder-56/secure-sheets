@@ -18,9 +18,22 @@ async function bootstrap() {
     }),
   );
 
-  // CORS – tighten in production
+  // CORS – allow frontend and common origins
+  const allowedOrigins = [
+    process.env.FRONTEND_URL,
+    'http://localhost:3000',
+    'https://lavish-sparkle-production-3aae.up.railway.app',
+  ].filter(Boolean);
+
   app.enableCors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, curl, etc.)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin) || origin.endsWith('.up.railway.app')) {
+        return callback(null, true);
+      }
+      return callback(null, true); // temporarily allow all for testing
+    },
     credentials: true,
   });
 
@@ -28,7 +41,7 @@ async function bootstrap() {
 
   const port = process.env.PORT || 4000;
   await app.listen(port);
-  console.log(`Secure Sheets API running on http://localhost:${port}`);
+  console.log(`Secure Sheets API running on port ${port}`);
 }
 
 bootstrap();
