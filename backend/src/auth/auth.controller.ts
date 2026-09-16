@@ -47,4 +47,20 @@ export class AuthController {
   ) {
     return this.authService.logout(refreshToken, userId);
   }
+
+  /** Request a password reset link / token */
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  async forgotPassword(@Body('email') email: string) {
+    return this.authService.forgotPassword(email);
+  }
+
+  /** Reset password using the token */
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  async resetPassword(
+    @Body() body: { token: string; newPassword: string },
+  ) {
+    return this.authService.resetPassword(body.token, body.newPassword);
+  }
 }

@@ -221,4 +221,79 @@ export class AuthService {
       },
     });
   }
+
+  async forgotPassword(email: string) {
+    if (!email) {
+      return { message: 'If the email exists, a reset token has been generated.' };
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      // Do not reveal whether the email exists
+      return { message: 'If the email exists, a reset token has been generated.' };
+    }
+
+    const token = randomBytes(32).toString('hex');
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 1); // 1 hour validity
+
+    await this.prisma.passwordResetToken.create({
+      data: {
+        userId: user.id,
+        token,
+        expiresAt,
+      },
+    });
+
+    // In production you would send an email here.
+    // For now we return the token so you can test the flow.
+    return {
+      message: 'Password reset token generated. Use it within 1 hour.',
+      resetToken: token, // remove this in real production with email
+    };
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    if (!token || !newPassword || newPassword.length < 8) {
+      throw new BadRequestException('Invalid token or password (min 8 characters)');
+    }
+
+    const record = await this.prisma.passwordResetToken.findUnique({
+      where: { token },
+      include: { user: true },
+    });
+
+    if (!record || record.usedAt || record.expiresAt < new Date()) {
+      throw new BadRequestException('Invalid or expired reset token');
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+
+    await this.prisma.user.update({
+      where: { id: record.userId },
+      data: { passwordHash },
+    });
+
+    await this.prisma.passwordResetToken.update({
+      where: { id: record.id },
+      data: { usedAt: new Date() },
+    });
+
+    // Revoke all existing sessions
+    await this.prisma.session.updateMany({
+      where: { userId: record.userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        actorId: record.userId,
+        action: 'PASSWORD_CHANGE',
+        resourceType: 'user',
+        resourceId: record.userId,
+      },
+    });
+
+    return { message: 'Password has been reset successfully. Please login.' };
+  }
 }

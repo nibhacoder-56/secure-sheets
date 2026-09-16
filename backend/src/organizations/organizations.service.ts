@@ -14,12 +14,7 @@ export class OrganizationsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(dto: CreateOrganizationDto, user: AuthUser) {
-    // Only platform super admin can create organizations for now
-    // (later we can allow self-service with limits)
-    if (!user.isPlatformAdmin) {
-      throw new ForbiddenException('Only platform admins can create organizations');
-    }
-
+    // Any logged-in user can create an organization
     const existing = await this.prisma.organization.findUnique({
       where: { slug: dto.slug },
     });
@@ -93,7 +88,6 @@ export class OrganizationsService {
   async addMember(orgId: string, dto: AddMemberDto, user: AuthUser) {
     await this.assertOrgAdmin(orgId, user);
 
-    // Find or create the target user by email or phone
     let targetUser = await this.prisma.user.findFirst({
       where: {
         OR: [
@@ -104,7 +98,6 @@ export class OrganizationsService {
     });
 
     if (!targetUser) {
-      // Create a placeholder user (they will set password later via invite flow)
       targetUser = await this.prisma.user.create({
         data: {
           email: dto.email,
@@ -191,8 +184,6 @@ export class OrganizationsService {
 
     return { success: true };
   }
-
-  // ---------- helpers ----------
 
   private assertOrgAccess(orgId: string, user: AuthUser) {
     if (user.isPlatformAdmin) return;

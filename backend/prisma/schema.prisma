@@ -93,6 +93,7 @@ model User {
   auditLogs         AuditLog[]  @relation("ActorLogs")
   createdWorkbooks  Workbook[]  @relation("WorkbookCreator")
   createdSheets     Sheet[]     @relation("SheetCreator")
+  passwordResetTokens PasswordResetToken[]
 
   @@index([email])
   @@index([phone])
@@ -115,6 +116,21 @@ model Session {
   @@index([refreshTokenHash])
   @@map("sessions")
 }
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
 
 // ============================================================
 // MULTI-TENANCY: ORGANIZATIONS
@@ -187,6 +203,8 @@ model Sheet {
   organizationId String   // denormalized for faster RLS
   name           String
   orderIndex     Int      @default(0)
+  // Optional password protection for the sheet
+  passwordHash   String?
   // Yjs document state can be stored here or in a separate blob store
   yjsState       Bytes?   // optional snapshot
   createdById    String

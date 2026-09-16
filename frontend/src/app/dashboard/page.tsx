@@ -47,8 +47,31 @@ export default function DashboardPage() {
     }
   }
 
+  async function createOrganization() {
+    const name = prompt('Organization name? (example: My Company)');
+    if (!name) return;
+
+    // Create a simple slug from the name
+    const slug = name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '') + '-' + Date.now().toString().slice(-4);
+
+    try {
+      const org = await orgApi.create(accessToken!, { name, slug });
+      alert('Organization created successfully!');
+      // Reload page so the new org membership is reflected in the token context
+      window.location.reload();
+    } catch (err: any) {
+      alert(err.message || 'Failed to create organization');
+    }
+  }
+
   async function createWorkbook() {
-    if (!selectedOrg) return;
+    if (!selectedOrg) {
+      alert('Please create an organization first');
+      return;
+    }
     const name = prompt('Workbook name?');
     if (!name) return;
     try {
@@ -102,11 +125,25 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             {/* Sidebar - Orgs */}
             <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <h2 className="font-semibold text-slate-800 mb-3">Organizations</h2>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="font-semibold text-slate-800">Organizations</h2>
+                <button
+                  onClick={createOrganization}
+                  className="text-xs px-2 py-1 bg-sky-600 text-white rounded hover:bg-sky-700"
+                >
+                  + New
+                </button>
+              </div>
               {orgs.length === 0 ? (
-                <p className="text-sm text-slate-400">
-                  No organizations yet. Create one via API as platform admin.
-                </p>
+                <div className="text-sm text-slate-400">
+                  <p>No organizations yet.</p>
+                  <button
+                    onClick={createOrganization}
+                    className="mt-2 text-sky-600 hover:underline text-sm"
+                  >
+                    Create your first organization →
+                  </button>
+                </div>
               ) : (
                 <ul className="space-y-1">
                   {orgs.map((org) => (
@@ -143,7 +180,17 @@ export default function DashboardPage() {
                 </button>
               </div>
 
-              {workbooks.length === 0 ? (
+              {!selectedOrg ? (
+                <div className="bg-white rounded-xl border border-dashed border-slate-300 p-12 text-center">
+                  <p className="text-slate-400">Create an organization first</p>
+                  <button
+                    onClick={createOrganization}
+                    className="mt-3 px-4 py-2 bg-sky-600 text-white text-sm rounded-lg hover:bg-sky-700"
+                  >
+                    + Create Organization
+                  </button>
+                </div>
+              ) : workbooks.length === 0 ? (
                 <div className="bg-white rounded-xl border border-dashed border-slate-300 p-12 text-center">
                   <p className="text-slate-400">No workbooks yet</p>
                   <p className="text-sm text-slate-400 mt-1">
@@ -155,7 +202,7 @@ export default function DashboardPage() {
                   {workbooks.map((wb) => (
                     <div
                       key={wb.id}
-                      className="bg-white rounded-xl border border-slate-200 p-4 hover:border-sky-300 transition cursor-pointer"
+                      className="bg-white rounded-xl border border-slate-200 p-4 hover:border-sky-300 transition"
                     >
                       <div className="flex items-start justify-between">
                         <div>

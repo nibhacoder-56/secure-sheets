@@ -53,4 +53,26 @@ export class WorkbooksController {
   deleteSheet(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.workbooksService.deleteSheet(id, user);
   }
+
+  @Get('sheets/:id/info')
+  getSheetInfo(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.workbooksService.getSheetInfo(id, user);
+  }
+
+  @Post('sheets/:id/password')
+  setSheetPassword(
+    @Param('id') id: string,
+    @Body('password') password: string | null,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.workbooksService.setSheetPassword(id, password, user);
+  }
+
+  @Post('sheets/:id/verify-password')
+  verifySheetPassword(
+    @Param('id') id: string,
+    @Body('password') password: string,
+  ) {
+    return this.workbooksService.verifySheetPassword(id, password);
+  }
 }
