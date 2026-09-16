@@ -21,6 +21,7 @@ enum GlobalRole {
 
 enum OrgRole {
   ORG_ADMIN
+  HR
   MEMBER
 }
 

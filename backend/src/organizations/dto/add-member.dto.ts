@@ -9,6 +9,7 @@ import {
 
 enum OrgRoleDto {
   ORG_ADMIN = 'ORG_ADMIN',
+  HR = 'HR',
   MEMBER = 'MEMBER',
 }
 

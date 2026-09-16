@@ -72,7 +72,9 @@ export class WorkbooksController {
   verifySheetPassword(
     @Param('id') id: string,
     @Body('password') password: string,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.workbooksService.verifySheetPassword(id, password);
+    return this.workbooksService.verifySheetPassword(id, password, user);
   }
 }
+

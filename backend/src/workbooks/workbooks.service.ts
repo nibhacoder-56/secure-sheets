@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthUser } from '../common/decorators/current-user.decorator';
+import { AuthUser, isHrOrAdmin } from '../common/decorators/current-user.decorator';
 import { CreateWorkbookDto } from './dto/create-workbook.dto';
 import { CreateSheetDto } from './dto/create-sheet.dto';
 import * as bcrypt from 'bcrypt';
@@ -51,9 +51,7 @@ export class WorkbooksService {
   async listWorkbooks(orgId: string, user: AuthUser) {
     this.assertOrgAccess(orgId, user);
 
-    // Org admins see everything. Others see only workbooks they have permission on
-    // or sheets they have permission on (simplified for now: org members see all)
-    return this.prisma.workbook.findMany({
+    const workbooks = await this.prisma.workbook.findMany({
       where: {
         organizationId: orgId,
         isArchived: false,
@@ -62,6 +60,12 @@ export class WorkbooksService {
         sheets: {
           where: { isArchived: false },
           orderBy: { orderIndex: 'asc' },
+          include: {
+            permissions: {
+              where: { userId: user.id },
+              select: { id: true, permission: true },
+            },
+          },
         },
         createdBy: {
           select: { id: true, name: true, email: true },
@@ -69,6 +73,27 @@ export class WorkbooksService {
       },
       orderBy: { updatedAt: 'desc' },
     });
+
+    // HR / Org Admin see all sheets. Staff only see sheets explicitly shared with them
+    // or sheets they created, and sheets that are NOT password-protected (open sheets).
+    if (isHrOrAdmin(user, orgId)) {
+      return workbooks;
+    }
+
+    // Staff filtering
+    return workbooks
+      .map((wb) => {
+        const visibleSheets = wb.sheets.filter((s: any) => {
+          const hasExplicitPermission = s.permissions && s.permissions.length > 0;
+          const isCreator = s.createdById === user.id;
+          const isOpen = !s.passwordHash;
+          return hasExplicitPermission || isCreator || isOpen;
+        });
+        // Hide passwordHash from client
+        const safeSheets = visibleSheets.map(({ passwordHash, permissions, ...rest }: any) => rest);
+        return { ...wb, sheets: safeSheets };
+      })
+      .filter((wb) => wb.sheets.length > 0 || wb.createdById === user.id);
   }
 
   async getWorkbook(workbookId: string, user: AuthUser) {
@@ -172,15 +197,20 @@ export class WorkbooksService {
     return { success: true, passwordProtected: !!password };
   }
 
-  async verifySheetPassword(sheetId: string, password: string) {
+  async verifySheetPassword(sheetId: string, password: string, user?: AuthUser) {
     const sheet = await this.prisma.sheet.findUnique({ where: { id: sheetId } });
     if (!sheet) throw new NotFoundException('Sheet not found');
+
+    // HR / Org Admin always pass without password
+    if (user && isHrOrAdmin(user, sheet.organizationId)) {
+      return { valid: true, passwordProtected: !!sheet.passwordHash, bypassedByHr: true };
+    }
 
     if (!sheet.passwordHash) {
       return { valid: true, passwordProtected: false };
     }
 
-    const valid = await bcrypt.compare(password, sheet.passwordHash);
+    const valid = await bcrypt.compare(password || '', sheet.passwordHash);
     return { valid, passwordProtected: true };
   }
 
@@ -193,16 +223,35 @@ export class WorkbooksService {
         organizationId: true,
         workbookId: true,
         passwordHash: true,
+        createdById: true,
       },
     });
     if (!sheet) throw new NotFoundException('Sheet not found');
     this.assertOrgAccess(sheet.organizationId, user);
 
+    const hrBypass = isHrOrAdmin(user, sheet.organizationId);
+
+    // Staff: check explicit permission if sheet is protected
+    if (!hrBypass && sheet.passwordHash) {
+      const perm = await this.prisma.sheetPermission.findUnique({
+        where: {
+          sheetId_userId: { sheetId, userId: user.id },
+        },
+      });
+      const isCreator = sheet.createdById === user.id;
+      if (!perm && !isCreator) {
+        throw new ForbiddenException('You do not have access to this protected sheet');
+      }
+    }
+
     return {
       id: sheet.id,
       name: sheet.name,
       workbookId: sheet.workbookId,
-      passwordProtected: !!sheet.passwordHash,
+      // HR never needs to enter password
+      passwordProtected: hrBypass ? false : !!sheet.passwordHash,
+      isHrAccess: hrBypass,
     };
   }
 }
+

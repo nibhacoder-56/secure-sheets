@@ -6,6 +6,8 @@ export interface AuthUser {
   phone?: string | null;
   globalRole: string;
   orgIds: string[];
+  /** organizationId -> role (ORG_ADMIN | HR | MEMBER) */
+  orgRoles: Record<string, string>;
   isPlatformAdmin: boolean;
 }
 
@@ -16,3 +18,10 @@ export const CurrentUser = createParamDecorator(
     return data ? user?.[data] : user;
   },
 );
+
+/** Helper: is user HR or Org Admin for this org? */
+export function isHrOrAdmin(user: AuthUser, orgId: string): boolean {
+  if (user.isPlatformAdmin) return true;
+  const role = user.orgRoles[orgId];
+  return role === 'HR' || role === 'ORG_ADMIN';
+}

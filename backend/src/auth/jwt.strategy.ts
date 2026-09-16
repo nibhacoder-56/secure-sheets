@@ -44,6 +44,10 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     }
 
     const orgIds = user.memberships.map((m) => m.organizationId);
+    const orgRoles: Record<string, string> = {};
+    for (const m of user.memberships) {
+      orgRoles[m.organizationId] = m.role;
+    }
     const isPlatformAdmin = user.globalRole === 'PLATFORM_SUPER_ADMIN';
 
     return {
@@ -52,6 +56,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       phone: user.phone,
       globalRole: user.globalRole,
       orgIds,
+      orgRoles,
       isPlatformAdmin,
     };
   }
